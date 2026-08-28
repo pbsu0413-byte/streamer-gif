@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>짤 뽑기 - 스트리머 랜덤 머신</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Do+Hyeon&family=JetBrains+Mono:wght@400;600&family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+  <div class="topbar">
+    <div class="rec"><span class="dot"></span> ON AIR</div>
+    <div class="counter" id="counter">뽑기 0회</div>
+  </div>
+
+  <h1>짤 뽑기 머신</h1>
+  <p class="sub">버튼을 누르면 랜덤으로 짤이 나와요</p>
+
+  <div class="stage" id="stage">
+    <div class="empty" id="emptyState">
+      아직 등록된 짤이 없어요.<br>
+      <a href="/admin">관리 페이지</a>에서 이미지를 추가해주세요.
+    </div>
+  </div>
+
+  <div class="name-tag" id="nameTag"></div>
+
+  <button class="draw-btn" id="drawBtn">🎰 뽑기</button>
+
+  <div class="actions" id="actions">
+    <button id="shareBtn">📤 공유하기</button>
+    <button id="downloadBtn">⬇️ 다운로드</button>
+    <button id="copyBtn">🔗 링크 복사</button>
+  </div>
+
+  <a class="help-toggle" href="/admin">짤 추가하러 가기 →</a>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>

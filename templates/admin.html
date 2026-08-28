@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>짤 관리 페이지</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Do+Hyeon&family=JetBrains+Mono:wght@400;600&family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<style>
+  .admin-wrap{ width:min(92vw, 460px); margin-top: 20px; }
+  .field{ margin-bottom: 12px; }
+  .field label{ display:block; font-size:12px; color:var(--text-dim); margin-bottom:6px; }
+  .field input{
+    width:100%; padding: 12px 14px; border-radius: 12px;
+    background: var(--bg-elev-2); border: 1px solid var(--border);
+    color: var(--text); font-size: 14px; font-family: inherit;
+  }
+  .field input:focus{ outline: 2px solid var(--accent-2); }
+  .save-btn{
+    width:100%; padding: 13px; border-radius: 12px; border:none;
+    background: linear-gradient(135deg, var(--accent-3), #6bf0c2);
+    color:#0a0b14; font-weight:700; font-size:14px; cursor:pointer;
+  }
+  .list{ margin-top: 26px; display:flex; flex-direction:column; gap:8px; }
+  .item{
+    display:flex; align-items:center; gap:10px;
+    background: var(--bg-elev); border:1px solid var(--border);
+    border-radius: 12px; padding: 8px 10px;
+  }
+  .item img{ width:44px; height:44px; object-fit:cover; border-radius:8px; flex-shrink:0; }
+  .item .info{ flex:1; min-width:0; }
+  .item .info .n{ font-size:13px; font-weight:600; }
+  .item .info .u{ font-size:11px; color:var(--text-dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .item button{
+    background:none; border:1px solid var(--border); color:var(--text-dim);
+    border-radius:8px; padding:6px 10px; font-size:12px; cursor:pointer;
+  }
+  .item button:hover{ color: var(--accent); border-color: var(--accent); }
+  .back{ display:block; margin-top:22px; color:var(--text-dim); font-size:13px; }
+</style>
+</head>
+<body>
+
+  <h1>짤 관리</h1>
+  <p class="sub">여기서 짤을 추가하거나 삭제할 수 있어요</p>
+
+  <div class="admin-wrap">
+    <div class="field">
+      <label>관리 비밀번호</label>
+      <input type="password" id="pw" placeholder="ADMIN_PASSWORD 값 입력">
+    </div>
+    <div class="field">
+      <label>스트리머 / 짤 이름</label>
+      <input type="text" id="name" placeholder="예: 침착맨">
+    </div>
+    <div class="field">
+      <label>이미지 / gif 주소 (URL)</label>
+      <input type="text" id="url" placeholder="https://...">
+    </div>
+    <button class="save-btn" id="addBtn">추가하기</button>
+
+    <div class="list" id="list"></div>
+
+    <a class="back" href="/">← 뽑기 화면으로 돌아가기</a>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+<script>
+  const pwInput = document.getElementById('pw');
+  const nameInput = document.getElementById('name');
+  const urlInput = document.getElementById('url');
+  const addBtn = document.getElementById('addBtn');
+  const listEl = document.getElementById('list');
+  const toastEl = document.getElementById('toast');
+
+  // 비밀번호는 이 브라우저에만 저장 (매번 입력 안 해도 되게)
+  pwInput.value = localStorage.getItem('admin_pw') || '';
+
+  function toast(msg){
+    toastEl.textContent = msg;
+    toastEl.classList.add('show');
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => toastEl.classList.remove('show'), 1800);
+  }
+
+  async function loadList(){
+    const res = await fetch('/api/media');
+    const items = await res.json();
+    listEl.innerHTML = '';
+    items.forEach((item, idx) => {
+      const row = document.createElement('div');
+      row.className = 'item';
+      row.innerHTML = `
+        <img src="${item.url}" alt="">
+        <div class="info">
+          <div class="n">${item.name || ''}</div>
+          <div class="u">${item.url}</div>
+        </div>
+        <button data-idx="${idx}">삭제</button>
+      `;
+      row.querySelector('button').addEventListener('click', () => removeItem(idx));
+      listEl.appendChild(row);
+    });
+  }
+
+  async function addItem(){
+    const pw = pwInput.value.trim();
+    const name = nameInput.value.trim();
+    const url = urlInput.value.trim();
+    if (!url){ toast('이미지 주소를 입력해주세요'); return; }
+    localStorage.setItem('admin_pw', pw);
+    const res = await fetch('/api/media', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Admin-Password': pw },
+      body: JSON.stringify({ name, url })
+    });
+    if (res.status === 401){ toast('비밀번호가 틀렸어요'); return; }
+    if (!res.ok){ toast('추가 실패'); return; }
+    nameInput.value = '';
+    urlInput.value = '';
+    toast('추가했어요!');
+    loadList();
+  }
+
+  async function removeItem(idx){
+    const pw = pwInput.value.trim();
+    const res = await fetch(`/api/media/${idx}`, {
+      method: 'DELETE',
+      headers: { 'X-Admin-Password': pw }
+    });
+    if (res.status === 401){ toast('비밀번호가 틀렸어요'); return; }
+    toast('삭제했어요');
+    loadList();
+  }
+
+  addBtn.addEventListener('click', addItem);
+  loadList();
+</script>
+</body>
+</html>
