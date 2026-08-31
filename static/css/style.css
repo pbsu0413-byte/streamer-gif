@@ -62,6 +62,33 @@ h1{
 }
 .sub{ color: var(--text-dim); font-size: 14px; margin: 0 0 26px; text-align:center; }
 
+.tabs{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  justify-content:center;
+  max-width: 380px;
+  margin-bottom: 22px;
+}
+.tab-btn{
+  font-family:'Noto Sans KR', sans-serif;
+  font-size: 13px;
+  font-weight:600;
+  color: var(--text-dim);
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 8px 16px;
+  cursor:pointer;
+  transition: all 120ms ease;
+}
+.tab-btn:hover{ color: var(--text); border-color: rgba(255,255,255,0.2); }
+.tab-btn.active{
+  color: #0a0b14;
+  background: linear-gradient(135deg, var(--accent-3), #6bf0c2);
+  border-color: transparent;
+}
+
 .stage{
   position:relative;
   width: min(88vw, 360px);
