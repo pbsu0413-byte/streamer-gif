@@ -1,15 +1,67 @@
+import base64
 import json
 import os
 import random
 from pathlib import Path
 
+import cloudinary
+import cloudinary.uploader
+import requests
 from flask import Flask, jsonify, render_template, request, abort
 
 app = Flask(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent
 MEDIA_FILE = BASE_DIR / "data" / "media.json"
+CATEGORIES_FILE = BASE_DIR / "data" / "categories.json"
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
+
+# 이 세 가지를 설정하면, 관리 페이지에서 짤/카테고리를 추가할 때마다
+# 깃허브 저장소의 실제 파일에도 자동으로 커밋해서 재배포되어도 사라지지 않게 한다.
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
+GITHUB_REPO = os.environ.get("GITHUB_REPO", "")  # 예: "myid/streamer-gif-app"
+GITHUB_BRANCH = os.environ.get("GITHUB_BRANCH", "main")
+
+# Cloudinary 설정 - 반드시 환경변수로만 관리한다 (코드에 직접 적지 말 것!)
+CLOUDINARY_CLOUD_NAME = os.environ.get("CLOUDINARY_CLOUD_NAME", "")
+CLOUDINARY_API_KEY = os.environ.get("CLOUDINARY_API_KEY", "")
+CLOUDINARY_API_SECRET = os.environ.get("CLOUDINARY_API_SECRET", "")
+
+if CLOUDINARY_CLOUD_NAME and CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET:
+    cloudinary.config(
+        cloud_name=CLOUDINARY_CLOUD_NAME,
+        api_key=CLOUDINARY_API_KEY,
+        api_secret=CLOUDINARY_API_SECRET,
+        secure=True,
+    )
+
+
+def github_commit_file(path_in_repo, content_str, message):
+    """data/media.json, data/categories.json 등을 깃허브 저장소에 직접 커밋한다.
+    GITHUB_TOKEN / GITHUB_REPO가 설정되어 있지 않으면 그냥 아무것도 하지 않는다."""
+    if not (GITHUB_TOKEN and GITHUB_REPO):
+        return False
+    api_url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{path_in_repo}"
+    headers = {
+        "Authorization": f"Bearer {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github+json",
+    }
+    try:
+        get_res = requests.get(api_url, headers=headers, params={"ref": GITHUB_BRANCH}, timeout=10)
+        sha = get_res.json().get("sha") if get_res.status_code == 200 else None
+
+        body = {
+            "message": message,
+            "content": base64.b64encode(content_str.encode("utf-8")).decode("utf-8"),
+            "branch": GITHUB_BRANCH,
+        }
+        if sha:
+            body["sha"] = sha
+
+        put_res = requests.put(api_url, headers=headers, json=body, timeout=10)
+        return put_res.status_code in (200, 201)
+    except requests.RequestException:
+        return False
 
 
 def load_media():
@@ -21,8 +73,25 @@ def load_media():
 
 def save_media(items):
     MEDIA_FILE.parent.mkdir(parents=True, exist_ok=True)
+    content = json.dumps(items, ensure_ascii=False, indent=2)
     with open(MEDIA_FILE, "w", encoding="utf-8") as f:
-        json.dump(items, f, ensure_ascii=False, indent=2)
+        f.write(content)
+    github_commit_file("data/media.json", content, "짤 목록 업데이트")
+
+
+def load_categories():
+    if not CATEGORIES_FILE.exists():
+        return []
+    with open(CATEGORIES_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def save_categories(cats):
+    CATEGORIES_FILE.parent.mkdir(parents=True, exist_ok=True)
+    content = json.dumps(cats, ensure_ascii=False, indent=2)
+    with open(CATEGORIES_FILE, "w", encoding="utf-8") as f:
+        f.write(content)
+    github_commit_file("data/categories.json", content, "카테고리 업데이트")
 
 
 def check_admin():
@@ -46,12 +115,19 @@ def admin_page():
 
 @app.route("/api/media")
 def api_media():
-    return jsonify(load_media())
+    items = load_media()
+    category = request.args.get("category")
+    if category:
+        items = [i for i in items if i.get("category") == category]
+    return jsonify(items)
 
 
 @app.route("/api/random")
 def api_random():
     items = load_media()
+    category = request.args.get("category")
+    if category:
+        items = [i for i in items if i.get("category") == category]
     if not items:
         return jsonify({"error": "empty"}), 404
     return jsonify(random.choice(items))
@@ -63,12 +139,46 @@ def add_media():
     data = request.get_json(silent=True) or {}
     name = (data.get("name") or "").strip()
     url = (data.get("url") or "").strip()
+    category = (data.get("category") or "").strip()
     if not url:
         return jsonify({"error": "url is required"}), 400
     items = load_media()
-    items.append({"name": name or "이름없음", "url": url})
+    items.append({
+        "name": name or "이름없음",
+        "url": url,
+        "category": category or "미분류",
+    })
     save_media(items)
     return jsonify({"ok": True, "items": items})
+
+
+@app.route("/api/categories")
+def api_categories():
+    return jsonify(load_categories())
+
+
+@app.route("/api/categories", methods=["POST"])
+def add_category():
+    check_admin()
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "name is required"}), 400
+    cats = load_categories()
+    if name not in cats:
+        cats.append(name)
+        save_categories(cats)
+    return jsonify({"ok": True, "categories": cats})
+
+
+@app.route("/api/categories/<name>", methods=["DELETE"])
+def delete_category(name):
+    check_admin()
+    cats = load_categories()
+    if name in cats:
+        cats.remove(name)
+        save_categories(cats)
+    return jsonify({"ok": True, "categories": cats})
 
 
 @app.route("/api/media/<int:index>", methods=["DELETE"])
@@ -82,51 +192,29 @@ def delete_media(index):
     return jsonify({"error": "not found"}), 404
 
 
+@app.route("/api/upload", methods=["POST"])
+def upload_file():
+    """관리 페이지에서 gif/이미지 파일을 직접 올리면 Cloudinary에 영구 저장하고
+    그 주소(secure_url)를 돌려준다. Render 재배포와 무관하게 계속 살아있는 링크가 된다."""
+    check_admin()
+    if not (CLOUDINARY_CLOUD_NAME and CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET):
+        return jsonify({"error": "Cloudinary 환경변수(CLOUDINARY_CLOUD_NAME 등)가 설정되지 않았습니다."}), 500
+    if "image" not in request.files:
+        return jsonify({"error": "파일이 없습니다."}), 400
+    file = request.files["image"]
+    if file.filename == "":
+        return jsonify({"error": "선택된 파일이 없습니다."}), 400
+    try:
+        result = cloudinary.uploader.upload(
+            file,
+            folder="streamer-gifs",
+            resource_type="auto",
+        )
+        return jsonify({"ok": True, "url": result.get("secure_url")})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=True)
-
-from flask import Flask, request, jsonify
-import cloudinary
-import cloudinary.uploader
-
-app = Flask(__name__)
-
-# Cloudinary 설정 (전달해주신 API Key 반영)
-cloudinary.config(
-    cloud_name = 'skjuuja',
-    api_key = '472428511728897',
-    api_secret = 'nEFTPvObC4UeiMbsrQTNxbQe1bc',
-    secure = True
-)
-
-# 이미지 업로드 라우터
-@app.route('/upload', methods=['POST'])
-def upload_file():
-    if 'image' not in request.files:
-        return jsonify({'success': False, 'message': '파일이 없습니다.'}), 400
-    
-    file = request.files['image']
-    if file.filename == '':
-        return jsonify({'success': False, 'message': '선택된 파일이 없습니다.'}), 400
-
-    try:
-        # Cloudinary로 바로 업로드 (메모리에서 전송)
-        upload_result = cloudinary.uploader.upload(
-            file,
-            folder="streamer-gifs",
-            resource_type="auto"
-        )
-        
-        # 업로드 성공 후 영구적인 절대 경로 URL 반환
-        return jsonify({
-            'success': True,
-            'message': '업로드 성공!',
-            'url': upload_result.get('secure_url')
-        }), 200
-
-    except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
