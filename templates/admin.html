@@ -52,15 +52,32 @@
       <input type="password" id="pw" placeholder="ADMIN_PASSWORD 값 입력">
     </div>
     <div class="field">
-      <label>스트리머 / 짤 이름</label>
-      <input type="text" id="name" placeholder="예: 침착맨">
+      <label>카테고리 (스트리머)</label>
+      <select id="category"></select>
+    </div>
+    <div class="field">
+      <label>새 카테고리 추가 (선택)</label>
+      <div style="display:flex; gap:8px;">
+        <input type="text" id="newCategory" placeholder="예: 우왁굳" style="flex:1;">
+        <button id="addCategoryBtn" style="padding:0 16px; border-radius:12px; border:1px solid var(--border); background:var(--bg-elev-2); color:var(--text); cursor:pointer;">추가</button>
+      </div>
+    </div>
+    <div class="field">
+      <label>짤 이름</label>
+      <input type="text" id="name" placeholder="예: 웃긴 장면">
+    </div>
+    <div class="field">
+      <label>gif/이미지 파일 업로드</label>
+      <input type="file" id="fileInput" accept="image/*">
+      <button id="uploadBtn" style="margin-top:8px; width:100%; padding:11px; border-radius:12px; border:1px solid var(--border); background:var(--bg-elev-2); color:var(--text); cursor:pointer;">파일 업로드해서 링크 만들기</button>
     </div>
     <div class="field">
       <label>이미지 / gif 주소 (URL)</label>
-      <input type="text" id="url" placeholder="https://...">
+      <input type="text" id="url" placeholder="위에서 파일 업로드하면 자동으로 채워져요">
     </div>
     <button class="save-btn" id="addBtn">추가하기</button>
 
+    <div class="tabs" id="filterTabs" style="margin-top:24px;"></div>
     <div class="list" id="list"></div>
 
     <a class="back" href="/">← 뽑기 화면으로 돌아가기</a>
@@ -72,9 +89,19 @@
   const pwInput = document.getElementById('pw');
   const nameInput = document.getElementById('name');
   const urlInput = document.getElementById('url');
+  const fileInput = document.getElementById('fileInput');
+  const uploadBtn = document.getElementById('uploadBtn');
+  const categorySelect = document.getElementById('category');
+  const newCategoryInput = document.getElementById('newCategory');
+  const addCategoryBtn = document.getElementById('addCategoryBtn');
   const addBtn = document.getElementById('addBtn');
   const listEl = document.getElementById('list');
+  const filterTabsEl = document.getElementById('filterTabs');
   const toastEl = document.getElementById('toast');
+
+  let allItems = [];
+  let allCategories = [];
+  let activeFilter = '';
 
   // 비밀번호는 이 브라우저에만 저장 (매번 입력 안 해도 되게)
   pwInput.value = localStorage.getItem('admin_pw') || '';
@@ -86,17 +113,49 @@
     toast._t = setTimeout(() => toastEl.classList.remove('show'), 1800);
   }
 
-  async function loadList(){
-    const res = await fetch('/api/media');
-    const items = await res.json();
+  async function loadCategories(){
+    const res = await fetch('/api/categories');
+    allCategories = await res.json();
+
+    categorySelect.innerHTML = '';
+    allCategories.forEach(cat => {
+      const opt = document.createElement('option');
+      opt.value = cat;
+      opt.textContent = cat;
+      categorySelect.appendChild(opt);
+    });
+
+    filterTabsEl.innerHTML = '';
+    const allBtn = document.createElement('button');
+    allBtn.className = 'tab-btn' + (activeFilter === '' ? ' active' : '');
+    allBtn.textContent = '전체';
+    allBtn.addEventListener('click', () => { activeFilter = ''; renderList(); refreshTabActive(); });
+    filterTabsEl.appendChild(allBtn);
+    allCategories.forEach(cat => {
+      const btn = document.createElement('button');
+      btn.className = 'tab-btn' + (activeFilter === cat ? ' active' : '');
+      btn.textContent = cat;
+      btn.addEventListener('click', () => { activeFilter = cat; renderList(); refreshTabActive(); });
+      filterTabsEl.appendChild(btn);
+    });
+  }
+
+  function refreshTabActive(){
+    filterTabsEl.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.textContent === (activeFilter || '전체'));
+    });
+  }
+
+  function renderList(){
     listEl.innerHTML = '';
-    items.forEach((item, idx) => {
+    allItems.forEach((item, idx) => {
+      if (activeFilter && item.category !== activeFilter) return;
       const row = document.createElement('div');
       row.className = 'item';
       row.innerHTML = `
         <img src="${item.url}" alt="">
         <div class="info">
-          <div class="n">${item.name || ''}</div>
+          <div class="n">${item.name || ''} <span style="color:var(--accent-3); font-size:11px;">${item.category || ''}</span></div>
           <div class="u">${item.url}</div>
         </div>
         <button data-idx="${idx}">삭제</button>
@@ -106,16 +165,71 @@
     });
   }
 
+  async function loadList(){
+    const res = await fetch('/api/media');
+    allItems = await res.json();
+    renderList();
+  }
+
+  async function addCategory(){
+    const pw = pwInput.value.trim();
+    const name = newCategoryInput.value.trim();
+    if (!name){ toast('카테고리 이름을 입력해주세요'); return; }
+    localStorage.setItem('admin_pw', pw);
+    const res = await fetch('/api/categories', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Admin-Password': pw },
+      body: JSON.stringify({ name })
+    });
+    if (res.status === 401){ toast('비밀번호가 틀렸어요'); return; }
+    if (!res.ok){ toast('추가 실패'); return; }
+    newCategoryInput.value = '';
+    toast('카테고리를 추가했어요!');
+    await loadCategories();
+    categorySelect.value = name;
+  }
+
+  async function uploadFile(){
+    const pw = pwInput.value.trim();
+    const file = fileInput.files[0];
+    if (!file){ toast('업로드할 파일을 선택해주세요'); return; }
+    localStorage.setItem('admin_pw', pw);
+    uploadBtn.disabled = true;
+    uploadBtn.textContent = '업로드 중...';
+    try {
+      const formData = new FormData();
+      formData.append('image', file);
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        headers: { 'X-Admin-Password': pw },
+        body: formData
+      });
+      const data = await res.json();
+      if (res.status === 401){ toast('비밀번호가 틀렸어요'); return; }
+      if (!res.ok || !data.ok){ toast(data.error || '업로드 실패'); return; }
+      urlInput.value = data.url;
+      if (!nameInput.value) nameInput.value = file.name.replace(/\.[^/.]+$/, '');
+      toast('업로드 완료! URL이 자동으로 채워졌어요');
+    } catch (e){
+      toast('업로드 중 오류가 발생했어요');
+    } finally {
+      uploadBtn.disabled = false;
+      uploadBtn.textContent = '파일 업로드해서 링크 만들기';
+    }
+  }
+
   async function addItem(){
     const pw = pwInput.value.trim();
     const name = nameInput.value.trim();
     const url = urlInput.value.trim();
+    const category = categorySelect.value;
     if (!url){ toast('이미지 주소를 입력해주세요'); return; }
+    if (!category){ toast('카테고리를 먼저 추가해주세요'); return; }
     localStorage.setItem('admin_pw', pw);
     const res = await fetch('/api/media', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Admin-Password': pw },
-      body: JSON.stringify({ name, url })
+      body: JSON.stringify({ name, url, category })
     });
     if (res.status === 401){ toast('비밀번호가 틀렸어요'); return; }
     if (!res.ok){ toast('추가 실패'); return; }
@@ -137,6 +251,9 @@
   }
 
   addBtn.addEventListener('click', addItem);
+  addCategoryBtn.addEventListener('click', addCategory);
+  uploadBtn.addEventListener('click', uploadFile);
+  loadCategories();
   loadList();
 </script>
 </body>
