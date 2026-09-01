@@ -169,23 +169,74 @@ function isMobileDevice(){
   return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 }
 
+function checkInAppBrowser(){
+  const ua = navigator.userAgent || '';
+  const isKakao = /KAKAOTALK/i.test(ua);
+  const isOtherInApp = /Instagram|FBAN|FBAV|Line\//i.test(ua);
+  const banner = document.getElementById('inappBanner');
+  const openBtn = document.getElementById('openExternalBtn');
+
+  if ((isKakao || isOtherInApp) && banner){
+    banner.style.display = 'block';
+  }
+
+  if (isKakao && openBtn){
+    // 카카오톡 인앱 브라우저는 강제로 외부 브라우저(사파리/크롬)를 열 수 있는 방법이 있다.
+    openBtn.addEventListener('click', () => {
+      const isAndroid = /Android/i.test(ua);
+      if (isAndroid){
+        const bare = location.href.replace(/^https?:\/\//i, '');
+        location.href = `intent://${bare}#Intent;scheme=https;package=com.android.chrome;end`;
+      } else {
+        location.href = 'kakaotalk://web/openExternal?url=' + encodeURIComponent(location.href);
+      }
+    });
+  } else if (openBtn){
+    // 인스타그램 등은 이런 강제 이동 트릭이 통하지 않아 버튼을 숨기고 안내 문구만 남긴다.
+    openBtn.style.display = 'none';
+    if (banner){
+      banner.innerHTML += '<br>오른쪽 아래(또는 "⋯") 메뉴에서 <b>"다른 브라우저에서 열기"</b>를 찾아주세요.';
+    }
+  }
+}
+checkInAppBrowser();
+
+// 1. [공유하기] 버튼 기능 (유튜브 공유 창처럼 모바일 순정 공유 UI 띄우기)
+async function shareGif(gifUrl, gifTitle) {
+  if (navigator.share) {
+    try {
+      await navigator.share({
+        title: gifTitle || '스트리머 짤',
+        text: '이 짤 한번 봐봐!',
+        url: gifUrl
+      });
+      console.log('공유 성공!');
+    } catch (err) {
+      console.log('공유 취소 또는 에러:', err);
+    }
+  } else {
+    navigator.clipboard.writeText(gifUrl);
+    alert('GIF 링크가 클립보드에 복사되었습니다!');
+  }
+}
+
+// 2. [링크 복사] 버튼 기능 (현재 웹사이트 주소 복사)
+function copyWebsiteUrl() {
+  const currentSiteUrl = window.location.href;
+
+  navigator.clipboard.writeText(currentSiteUrl)
+    .then(() => {
+      alert('웹사이트 주소가 복사되었습니다!');
+    })
+    .catch(err => {
+      console.error('복사 실패:', err);
+    });
+}
+
 async function shareCurrent(){
   if (currentIndex === null) return;
   const item = MEDIA_ITEMS[currentIndex];
-  const shareUrl = toShareableUrl(item.url);
-  // 파일 자체를 공유하는 방식은 기기/브라우저마다 지원이 들쭉날쭉해서,
-  // 훨씬 안정적으로 잘 뜨는 "링크 공유" 방식(카톡/왓츠앱/문자 등 아이콘이 쭉 나오는 기본 공유창)을 우선 사용한다.
-  if (navigator.share){
-    try {
-      await navigator.share({ title: item.name || '스트리머 짤', url: shareUrl });
-      return;
-    } catch (e){
-      if (e && e.name === 'AbortError') return; // 사용자가 공유창에서 취소한 경우
-    }
-  }
-  // 공유 기능 자체가 없는 브라우저(주로 PC)는 링크만 복사
-  copyCurrentLink();
-  toast('이 브라우저는 공유 시트를 지원하지 않아 링크를 복사했어요!');
+  await shareGif(toShareableUrl(item.url), item.name);
 }
 
 async function downloadCurrent(){
@@ -217,10 +268,7 @@ async function downloadCurrent(){
 
 function copyCurrentLink(){
   if (currentIndex === null) return;
-  const item = MEDIA_ITEMS[currentIndex];
-  navigator.clipboard.writeText(toShareableUrl(item.url))
-    .then(() => toast('링크를 복사했어요!'))
-    .catch(() => toast('복사에 실패했어요.'));
+  copyWebsiteUrl();
 }
 
 drawBtn.addEventListener('click', draw);
