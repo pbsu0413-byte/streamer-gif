@@ -14,6 +14,7 @@ app = Flask(__name__)
 BASE_DIR = Path(__file__).resolve().parent
 MEDIA_FILE = BASE_DIR / "data" / "media.json"
 CATEGORIES_FILE = BASE_DIR / "data" / "categories.json"
+CHANNELS_FILE = BASE_DIR / "data" / "channels.json"
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 
 # 이 세 가지를 설정하면, 관리 페이지에서 짤/카테고리를 추가할 때마다
@@ -94,6 +95,21 @@ def save_categories(cats):
     github_commit_file("data/categories.json", content, "카테고리 업데이트")
 
 
+def load_channels():
+    if not CHANNELS_FILE.exists():
+        return {}
+    with open(CHANNELS_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def save_channels(mapping):
+    CHANNELS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    content = json.dumps(mapping, ensure_ascii=False, indent=2)
+    with open(CHANNELS_FILE, "w", encoding="utf-8") as f:
+        f.write(content)
+    github_commit_file("data/channels.json", content, "치지직 채널 연결 업데이트")
+
+
 def check_admin():
     if not ADMIN_PASSWORD:
         # 비밀번호를 설정하지 않았으면 관리 기능을 막아둔다 (안전을 위한 기본값)
@@ -105,7 +121,7 @@ def check_admin():
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    return render_template("index.html", kakao_js_key=os.environ.get("KAKAO_JS_KEY", ""))
 
 
 @app.route("/admin")
@@ -190,6 +206,55 @@ def delete_media(index):
         save_media(items)
         return jsonify({"ok": True, "items": items})
     return jsonify({"error": "not found"}), 404
+
+
+@app.route("/api/channels")
+def api_channels():
+    return jsonify(load_channels())
+
+
+@app.route("/api/channels", methods=["POST"])
+def set_channel():
+    check_admin()
+    data = request.get_json(silent=True) or {}
+    category = (data.get("category") or "").strip()
+    channel_id = (data.get("channel_id") or "").strip()
+    if not category:
+        return jsonify({"error": "category is required"}), 400
+    # 채널 URL을 통째로 붙여넣었을 경우 뒤쪽 채널ID만 뽑아낸다
+    if "chzzk.naver.com" in channel_id:
+        channel_id = channel_id.split("?")[0].rstrip("/").split("/")[-1]
+    mapping = load_channels()
+    if channel_id:
+        mapping[category] = channel_id
+    else:
+        mapping.pop(category, None)
+    save_channels(mapping)
+    return jsonify({"ok": True, "channels": mapping})
+
+
+@app.route("/api/live-status/<category>")
+def live_status(category):
+    mapping = load_channels()
+    channel_id = mapping.get(category)
+    if not channel_id:
+        return jsonify({"live": None})
+    try:
+        res = requests.get(
+            f"https://api.chzzk.naver.com/polling/v2/channels/{channel_id}/live-status",
+            timeout=6,
+            headers={"User-Agent": "Mozilla/5.0"},
+        )
+        data = res.json()
+        content = data.get("content") or {}
+        status = content.get("status")
+        return jsonify({
+            "live": status == "OPEN",
+            "title": content.get("liveTitle"),
+            "viewers": content.get("concurrentUserCount"),
+        })
+    except requests.RequestException as e:
+        return jsonify({"live": None, "error": str(e)})
 
 
 @app.route("/api/upload", methods=["POST"])
