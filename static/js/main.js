@@ -22,6 +22,19 @@ function toShareableUrl(url){
   }
 }
 
+async function checkLive(category, btn){
+  try {
+    const res = await fetch(`/api/live-status/${encodeURIComponent(category)}`);
+    const data = await res.json();
+    if (data.live){
+      const dot = document.createElement('span');
+      dot.className = 'live-dot';
+      dot.title = data.title ? `LIVE: ${data.title}` : '방송 중';
+      btn.appendChild(dot);
+    }
+  } catch (e){ /* 확인 실패는 조용히 무시 */ }
+}
+
 async function loadMedia(){
   try{
     const url = currentCategory ? `/api/media?category=${encodeURIComponent(currentCategory)}` : '/api/media';
@@ -54,6 +67,7 @@ async function loadCategories(){
     btn.textContent = cat;
     btn.dataset.category = cat;
     tabsEl.appendChild(btn);
+    checkLive(cat, btn);
   });
 
   tabsEl.querySelectorAll('.tab-btn').forEach(btn => {
@@ -151,47 +165,53 @@ async function draw(){
   }, 70);
 }
 
+function isMobileDevice(){
+  return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+}
+
 async function shareCurrent(){
   if (currentIndex === null) return;
   const item = MEDIA_ITEMS[currentIndex];
-  try {
-    const res = await fetch(item.url, { mode: 'cors' });
-    const blob = await res.blob();
-    const ext = (blob.type.split('/')[1] || 'gif').split('+')[0];
-    const file = new File([blob], `${(item.name || 'clip').replace(/\s+/g,'_')}.${ext}`, { type: blob.type });
-    if (navigator.canShare && navigator.canShare({ files: [file] })){
-      await navigator.share({ files: [file], title: item.name || '스트리머 짤' });
+  const shareUrl = toShareableUrl(item.url);
+  // 파일 자체를 공유하는 방식은 기기/브라우저마다 지원이 들쭉날쭉해서,
+  // 훨씬 안정적으로 잘 뜨는 "링크 공유" 방식(카톡/왓츠앱/문자 등 아이콘이 쭉 나오는 기본 공유창)을 우선 사용한다.
+  if (navigator.share){
+    try {
+      await navigator.share({ title: item.name || '스트리머 짤', url: shareUrl });
       return;
+    } catch (e){
+      if (e && e.name === 'AbortError') return; // 사용자가 공유창에서 취소한 경우
     }
-    throw new Error('file share unsupported');
-  } catch (e){
-    if (navigator.share){
-      try {
-        await navigator.share({ title: item.name || '스트리머 짤', url: toShareableUrl(item.url) });
-        return;
-      } catch (_){ /* cancelled or failed */ }
-    }
-    copyCurrentLink();
-    toast('이 브라우저는 공유 기능이 제한적이에요. 링크를 복사했어요!');
   }
+  // 공유 기능 자체가 없는 브라우저(주로 PC)는 링크만 복사
+  copyCurrentLink();
+  toast('이 브라우저는 공유 시트를 지원하지 않아 링크를 복사했어요!');
 }
 
 async function downloadCurrent(){
   if (currentIndex === null) return;
   const item = MEDIA_ITEMS[currentIndex];
+  const shareUrl = toShareableUrl(item.url);
+  if (isMobileDevice()){
+    // 모바일은 강제 다운로드가 잘 안 먹히는 경우가 많아서,
+    // 새 창으로 이미지를 열어 길게 눌러 저장하도록 안내한다.
+    window.open(shareUrl, '_blank');
+    toast('새 창에서 이미지를 길게 눌러 "저장"을 눌러주세요!');
+    return;
+  }
   try {
     const res = await fetch(item.url, { mode: 'cors' });
     const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
+    const blobUrl = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url;
+    a.href = blobUrl;
     a.download = `${(item.name || 'clip').replace(/\s+/g,'_')}.gif`;
     document.body.appendChild(a);
     a.click();
     a.remove();
-    URL.revokeObjectURL(url);
+    URL.revokeObjectURL(blobUrl);
   } catch (e){
-    window.open(item.url, '_blank');
+    window.open(shareUrl, '_blank');
   }
 }
 
