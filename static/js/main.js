@@ -201,42 +201,67 @@ function checkInAppBrowser(){
 }
 checkInAppBrowser();
 
-// 1. [공유하기] 버튼 기능 (유튜브 공유 창처럼 모바일 순정 공유 UI 띄우기)
-async function shareGif(gifUrl, gifTitle) {
-  if (navigator.share) {
-    try {
-      await navigator.share({
-        title: gifTitle || '스트리머 짤',
-        text: '이 짤 한번 봐봐!',
-        url: gifUrl
-      });
-      console.log('공유 성공!');
-    } catch (err) {
-      console.log('공유 취소 또는 에러:', err);
-    }
-  } else {
-    navigator.clipboard.writeText(gifUrl);
-    alert('GIF 링크가 클립보드에 복사되었습니다!');
-  }
+// 현재 뽑힌 GIF 주소를 넣어서 모달 띄우기
+function openShareModal(gifUrl) {
+  const modal = document.getElementById('shareModal');
+  const urlInput = document.getElementById('shareUrlInput');
+
+  urlInput.value = gifUrl;
+
+  document.getElementById('shareX').href = `https://x.com/intent/tweet?text=${encodeURIComponent('이 짤 봐봐!')}&url=${encodeURIComponent(gifUrl)}`;
+  document.getElementById('shareFacebook').href = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(gifUrl)}`;
+
+  modal.style.display = 'flex';
 }
 
-// 2. [링크 복사] 버튼 기능 (현재 웹사이트 주소 복사)
-function copyWebsiteUrl() {
-  const currentSiteUrl = window.location.href;
+function shareToKakao(){
+  if (currentIndex === null) return;
+  const item = MEDIA_ITEMS[currentIndex];
+  const shareUrl = toShareableUrl(item.url);
 
-  navigator.clipboard.writeText(currentSiteUrl)
-    .then(() => {
-      alert('웹사이트 주소가 복사되었습니다!');
-    })
-    .catch(err => {
-      console.error('복사 실패:', err);
-    });
+  if (typeof Kakao === 'undefined' || !Kakao.isInitialized || !Kakao.isInitialized()){
+    toast('카카오톡 공유가 아직 설정되지 않았어요.');
+    return;
+  }
+
+  Kakao.Share.sendDefault({
+    objectType: 'feed',
+    content: {
+      title: item.name || '스트리머 짤',
+      description: '이 짤 한번 봐봐!',
+      imageUrl: item.url,
+      link: {
+        mobileWebUrl: shareUrl,
+        webUrl: shareUrl,
+      },
+    },
+    buttons: [
+      {
+        title: '짤 보기',
+        link: {
+          mobileWebUrl: shareUrl,
+          webUrl: shareUrl,
+        },
+      },
+    ],
+  });
+}
+
+function closeShareModal() {
+  document.getElementById('shareModal').style.display = 'none';
+}
+
+function copyShareUrl() {
+  const urlInput = document.getElementById('shareUrlInput');
+  navigator.clipboard.writeText(urlInput.value).then(() => {
+    alert('GIF 링크가 복사되었습니다!');
+  });
 }
 
 async function shareCurrent(){
   if (currentIndex === null) return;
   const item = MEDIA_ITEMS[currentIndex];
-  await shareGif(toShareableUrl(item.url), item.name);
+  openShareModal(toShareableUrl(item.url));
 }
 
 async function downloadCurrent(){
@@ -266,6 +291,18 @@ async function downloadCurrent(){
   }
 }
 
+function copyWebsiteUrl() {
+  const currentSiteUrl = window.location.href;
+
+  navigator.clipboard.writeText(currentSiteUrl)
+    .then(() => {
+      alert('웹사이트 주소가 복사되었습니다!');
+    })
+    .catch(err => {
+      console.error('복사 실패:', err);
+    });
+}
+
 function copyCurrentLink(){
   if (currentIndex === null) return;
   copyWebsiteUrl();
@@ -275,6 +312,10 @@ drawBtn.addEventListener('click', draw);
 document.getElementById('shareBtn').addEventListener('click', shareCurrent);
 document.getElementById('downloadBtn').addEventListener('click', downloadCurrent);
 document.getElementById('copyBtn').addEventListener('click', copyCurrentLink);
+document.getElementById('shareKaKao').addEventListener('click', function(e){
+  e.preventDefault();
+  shareToKakao();
+});
 
 loadCategories();
 loadMedia();
